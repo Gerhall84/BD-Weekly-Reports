@@ -130,6 +130,11 @@
         </div>
       </div>
 
+      <div class="card" id="myKpiCard">
+        <h2>FMS data <span id="myKpiWeek" style="font-weight:normal;font-size:11.5px"></span></h2>
+        <div class="body" id="myKpiBody"></div>
+      </div>
+
       <div class="card">
         <h2>My previous reports</h2>
         <div class="body" style="padding:0">
@@ -142,6 +147,27 @@
 
     <!-- TEAM VIEW (manager) -->
     <div id="viewTeam" style="display:none">
+      <div class="card" id="uploadCard">
+        <h2>Upload weekly FMS report</h2>
+        <div class="body">
+          <div class="row-controls">
+            <div style="max-width:190px"><label class="fl">Rep</label><select id="up_rep"></select></div>
+            <div style="max-width:190px"><label class="fl">Week ending</label><input type="date" id="up_week"></div>
+            <div style="max-width:280px"><label class="fl">FMS file (.xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
+            <button class="btn btn-light" id="up_read" style="align-self:flex-end">Read file</button>
+          </div>
+          <div id="up_preview" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>FMS KPIs <span id="kpiWeekLbl" style="font-weight:normal;font-size:11.5px"></span></h2>
+        <div class="body" style="padding:0;overflow-x:auto">
+          <table class="team-table" id="kpiTable"></table>
+          <div id="kpiEmpty" style="padding:20px;text-align:center;color:var(--muted);display:none">No FMS KPIs captured for this week yet.</div>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Team reports
           <span style="font-weight:normal">
@@ -160,9 +186,10 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-var SUPABASE_URL="https://hqhminypopndmjefrreg.supabase.co";
-var SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxaG1pbnlwb3BuZG1qZWZycmVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4MjY5MDYsImV4cCI6MjA5ODQwMjkwNn0.yxB94cq3i7nMLeMJlRvlFzfbpLuk7U-v5ZCyao6-iXE";
+var SUPABASE_URL="https://jvtcizgyfngmgcpiuzhf.supabase.co";
+var SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2dGNpemd5Zm5nbWdjcGl1emhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4NDM5NDcsImV4cCI6MjA5ODQxOTk0N30.ydsBx6fIzmlYv48JXi_5pGJ172mx7S-1W4DdW-zlU_8";
 var sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 var $=function(id){return document.getElementById(id);};
@@ -182,8 +209,12 @@ var HLS=[
   ["focus_next","Focus for Next Week"]
 ];
 var REP_ORDER=["Natacha","Eoin","Gary"];
+var METRICS=[["shipments","Shipments"],["ar","AR (revenue)"],["est_costs","Est. costs"],["ap","AP (actual)"],["profit","Profit (AR − est)"],["overruns","Cost overruns"]];
+var MONEY={ar:1,est_costs:1,ap:1,profit:1};
+function fmtMoney(n){ n=Number(n||0); return "€"+n.toLocaleString("en-IE",{maximumFractionDigits:0}); }
+function round2(n){ return Math.round(n*100)/100; }
 
-var me=null, profile=null, reports=[];
+var me=null, profile=null, reports=[], kpis=[], allReps=[], pendingKpis=null;
 
 /* ---------- week helper: Friday of current week ---------- */
 function thisFriday(){
@@ -229,6 +260,13 @@ async function onLogin(user){
     ? "You can file your own report and view the whole team."
     : "File your weekly report below. Only you and your manager can see it.";
   $("tabTeam").style.display=profile.is_manager?"block":"none";
+  if(profile.is_manager){
+    var pl=await sb.from("bd_profiles").select("rep_name").order("rep_name");
+    allReps=(pl.data&&pl.data.length)?pl.data.map(function(x){return x.rep_name;}):REP_ORDER.slice();
+    $("up_rep").innerHTML='<option value="">Rep…</option>'+allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
+    $("up_week").value=thisFriday();
+    $("up_read").onclick=readFmsFile;
+  }
   buildForm();
   $("f_week").value=thisFriday();
   $("f_week").addEventListener("change",loadWeekIntoForm);
@@ -251,6 +289,8 @@ async function loadReports(){
   var r=await sb.from("bd_weekly_reports").select("*").order("week_ending",{ascending:false});
   if(r.error){ toast("Load error: "+r.error.message); return; }
   reports=r.data||[];
+  var k=await sb.from("bd_fms_kpis").select("*").order("week_ending",{ascending:false});
+  kpis=(k.error)?[]:(k.data||[]);
   loadWeekIntoForm();
   renderMyList();
   if(profile.is_manager) buildTeamWeeks();
@@ -264,6 +304,28 @@ function loadWeekIntoForm(){
   CATS.concat(HLS).forEach(function(c){ $("r_"+c[0]).value=existing?(existing[c[0]]||""):""; });
   $("editingTag").textContent=existing?"· editing saved report":"· new";
   $("weekNote").textContent=wk?("Week ending "+fmtDate(wk)):"";
+  renderMyKpi();
+}
+function kpiGrid(k){
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">'+
+    METRICS.map(function(m){
+      var key=m[0]; var raw=k[key]; raw=(raw==null?0:raw);
+      var disp=MONEY[key]?fmtMoney(raw):raw;
+      var color="var(--navy)";
+      if(key==="profit") color=(raw<0?"#b00020":"#2e7d32");
+      if(key==="overruns"&&raw>0) color="#b00020";
+      var extra=(key==="overruns"&&raw>0)?" ⚑":"";
+      return '<div style="background:#f1f4f9;border:1px solid var(--line);border-radius:6px;padding:10px 12px">'+
+        '<div style="font-size:19px;font-weight:bold;color:'+color+'">'+esc(disp)+extra+'</div>'+
+        '<div style="font-size:11px;color:var(--muted);font-weight:bold">'+esc(m[1])+'</div></div>';
+    }).join("")+'</div>'+
+    '<div style="font-size:11px;color:var(--muted);margin-top:8px">Profit = AR − Estimated costs (FMS profit not used). Overruns = jobs where AP exceeded the estimate.'+(k.uploaded_at?" · uploaded "+fmtDate(k.uploaded_at):"")+'</div>';
+}
+function renderMyKpi(){
+  var wk=$("f_week").value;
+  var k=kpis.find(function(x){return x.rep_name===profile.rep_name && (""+x.week_ending).slice(0,10)===wk;});
+  $("myKpiWeek").textContent=wk?("· week ending "+fmtDate(wk)):"";
+  $("myKpiBody").innerHTML=k?kpiGrid(k):'<div style="color:var(--muted)">No FMS report uploaded for this week yet.</div>';
 }
 
 async function saveReport(){
@@ -293,7 +355,9 @@ window.openWeek=function(wk){ showTab('mine'); $("f_week").value=wk; loadWeekInt
 
 /* ---------- team view (manager) ---------- */
 function buildTeamWeeks(){
-  var weeks={}; reports.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
+  var weeks={};
+  reports.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
+  kpis.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
   var arr=Object.keys(weeks).sort().reverse();
   var sel=$("teamWeek"); var cur=sel.value;
   sel.innerHTML=arr.map(function(w){return '<option value="'+w+'">Week ending '+fmtDate(w)+'</option>';}).join("");
@@ -304,7 +368,7 @@ function buildTeamWeeks(){
 function renderTeam(){
   var wk=$("teamWeek").value;
   var forWeek=reports.filter(function(x){return (""+x.week_ending).slice(0,10)===wk;});
-  if(!wk||!forWeek.length){ $("teamTable").innerHTML=""; $("teamEmpty").style.display="block"; return; }
+  if(!wk||!forWeek.length){ $("teamTable").innerHTML=""; $("teamEmpty").style.display="block"; renderTeamKpis(); return; }
   $("teamEmpty").style.display="none";
   var byRep={}; forWeek.forEach(function(x){ byRep[x.rep_name]=x; });
   var reps=REP_ORDER.filter(function(n){return byRep[n];})
@@ -318,6 +382,86 @@ function renderTeam(){
     }).join("")+'</tr>';
   }).join("");
   $("teamTable").innerHTML=head+'<tbody>'+rows+'</tbody>';
+  renderTeamKpis();
+}
+function renderTeamKpis(){
+  var wk=$("teamWeek").value;
+  $("kpiWeekLbl").textContent=wk?("· week ending "+fmtDate(wk)):"";
+  var forWeek=kpis.filter(function(x){return (""+x.week_ending).slice(0,10)===wk;});
+  if(!wk||!forWeek.length){ $("kpiTable").innerHTML=""; $("kpiEmpty").style.display="block"; return; }
+  $("kpiEmpty").style.display="none";
+  var byRep={}; forWeek.forEach(function(x){ byRep[x.rep_name]=x; });
+  var reps=REP_ORDER.filter(function(n){return byRep[n];})
+            .concat(Object.keys(byRep).filter(function(n){return REP_ORDER.indexOf(n)<0;}));
+  var head='<thead><tr><th class="rep" style="text-align:left;background:var(--green)">Metric</th>'+
+    reps.map(function(n){return '<th class="rep">'+esc(n)+'</th>';}).join("")+'</tr></thead>';
+  var rows=METRICS.map(function(m){
+    var key=m[0];
+    return '<tr><td class="cat">'+esc(m[1])+'</td>'+reps.map(function(n){
+      var v=byRep[n]?byRep[n][key]:null;
+      if(v==null) return '<td style="text-align:center"><span class="empty">—</span></td>';
+      var disp=MONEY[key]?fmtMoney(v):v; var col="";
+      if(key==="profit") col="color:"+(v<0?"#b00020":"#2e7d32")+";font-weight:bold";
+      if(key==="overruns"&&v>0) col="color:#b00020;font-weight:bold";
+      return '<td style="text-align:center"><span style="'+col+'">'+esc(disp)+(key==="overruns"&&v>0?" ⚑":"")+'</span></td>';
+    }).join("")+'</tr>';
+  }).join("");
+  $("kpiTable").innerHTML=head+'<tbody>'+rows+'</tbody>';
+}
+
+/* ---------- FMS upload (managers) ---------- */
+function computeKpis(aoa){
+  if(!aoa||!aoa.length) return null;
+  var hdr=aoa[0].map(function(x){return (""+(x==null?"":x)).trim().toLowerCase();});
+  function idx(sub){ for(var i=0;i<hdr.length;i++){ if(hdr[i].indexOf(sub)>=0) return i; } return -1; }
+  var iNum=idx("number"), iEst=idx("cost summary"), iAp=idx("ap amount"), iAr=idx("ar amount");
+  var k={shipments:0,ar:0,est_costs:0,ap:0,profit:0,overruns:0};
+  var apMag=0;
+  function nv(row,i){ if(i<0) return 0; var v=parseFloat(row[i]); return isNaN(v)?0:v; }
+  for(var r=1;r<aoa.length;r++){
+    var row=aoa[r]; if(!row) continue;
+    var num=iNum>=0?row[iNum]:null;
+    if(num==null||(""+num).trim()==="") continue;
+    k.shipments++;
+    var ar=nv(row,iAr), est=nv(row,iEst), ap=nv(row,iAp);
+    k.ar+=ar; k.est_costs+=est; apMag+=Math.abs(ap);
+    if(Math.abs(ap)>est && (est>0||Math.abs(ap)>0)) k.overruns++;   // actual cost beat the estimate
+  }
+  k.ap=round2(apMag);
+  k.profit=round2(k.ar-k.est_costs);     // your formula: AR − Estimated costs (FMS profit ignored)
+  k.ar=round2(k.ar); k.est_costs=round2(k.est_costs);
+  return k;
+}
+function readFmsFile(){
+  var f=$("up_file").files[0]; if(!f){ $("up_preview").innerHTML='<span style="color:#b00020">Choose a file first.</span>'; return; }
+  var rd=new FileReader();
+  rd.onload=function(e){
+    try{
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var aoa=XLSX.utils.sheet_to_json(ws,{header:1});
+      var k=computeKpis(aoa);
+      if(!k||!k.shipments){ $("up_preview").innerHTML='<span style="color:#b00020">Couldn\u2019t read any shipment rows — check it\u2019s the FMS export with a header row.</span>'; pendingKpis=null; return; }
+      pendingKpis=k;
+      $("up_preview").innerHTML='<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Read '+k.shipments+' shipments. Check, then save:</div>'+kpiGrid(k)+
+        '<div style="margin-top:10px"><button class="btn btn-green" id="up_save">Save KPIs</button> <span class="msg" id="up_msg"></span></div>';
+      $("up_save").onclick=saveKpis;
+    }catch(err){ $("up_preview").innerHTML='<span style="color:#b00020">Error reading file: '+esc(err.message)+'</span>'; pendingKpis=null; }
+  };
+  rd.readAsArrayBuffer(f);
+}
+async function saveKpis(){
+  var rep=$("up_rep").value, wk=$("up_week").value;
+  if(!rep||!wk){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Pick the rep and week first."; return; }
+  if(!pendingKpis){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Read a file first."; return; }
+  var rec=Object.assign({rep_name:rep, week_ending:wk, uploaded_by:me.id, uploaded_at:new Date().toISOString()}, pendingKpis);
+  $("up_save").disabled=true; $("up_msg").style.color="var(--green)"; $("up_msg").textContent="Saving…";
+  var r=await sb.from("bd_fms_kpis").upsert(rec,{onConflict:"rep_name,week_ending"});
+  $("up_save").disabled=false;
+  if(r.error){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error: "+r.error.message; return; }
+  $("up_msg").textContent="Saved — "+rep+", week ending "+fmtDate(wk);
+  toast("FMS KPIs saved for "+rep); $("up_file").value=""; pendingKpis=null;
+  await loadReports();
 }
 
 /* ---------- tabs ---------- */
