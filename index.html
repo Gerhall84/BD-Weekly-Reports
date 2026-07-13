@@ -167,11 +167,11 @@
         <h2>Upload FMS report</h2>
         <div class="body">
           <div class="row-controls">
-            <div style="max-width:140px"><label class="fl">Period</label><select id="up_period"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
-            <div style="max-width:200px" id="up_dateWrap"><label class="fl" id="up_dateLbl">Week ending</label><input type="date" id="up_week"></div>
-            <div style="max-width:260px"><label class="fl">FMS file (all reps, .xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
+            <div style="max-width:200px"><label class="fl">Week ending</label><input type="date" id="up_week"></div>
+            <div style="max-width:280px"><label class="fl">FMS file (all reps, weekly, .xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
             <button class="btn btn-light" id="up_read" style="align-self:flex-end">Read file</button>
           </div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:6px">One upload fills the weekly numbers for that week and rebuilds the monthly totals (sum of the month’s weeks) for every rep.</div>
           <div id="up_preview" style="margin-top:12px"></div>
         </div>
       </div>
@@ -290,9 +290,8 @@ async function onLogin(user){
     var pl=await sb.from("bd_profiles").select("rep_name").order("rep_name");
     allReps=(pl.data&&pl.data.length)?pl.data.map(function(x){return x.rep_name;}):REP_ORDER.slice();
     var opts=allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
-    setUploadDateControl();
+    $("up_week").value=thisFriday();
     $("up_read").onclick=readFmsFile;
-    $("up_period").onchange=setUploadDateControl;
     $("mgrPrev").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,-1)); };
     $("mgrNext").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,1)); };
     $("mgrJump").onchange=function(){ if(this.value) selectMgrWeek(this.value); };
@@ -676,7 +675,7 @@ function readFmsFile(){
       var wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
       var ws=wb.Sheets[wb.SheetNames[0]];
       var aoa=XLSX.utils.sheet_to_json(ws,{header:1});
-      var res=computeAllKpis(aoa,wk,$("up_period").value);
+      var res=computeAllKpis(aoa,wk,"weekly");
       if(res&&res.__nosales){ $("up_preview").innerHTML='<span style="color:#b00020">No “Sales Person” column found — is this the right FMS export?</span>'; pendingKpis=null; return; }
       if(!res||!Object.keys(res.byRep).length){ $("up_preview").innerHTML='<span style="color:#b00020">No rows matched a rep set up in the app.</span>'; pendingKpis=null; return; }
       pendingKpis=res.byRep;
@@ -694,17 +693,30 @@ function readFmsFile(){
   rd.readAsArrayBuffer(f);
 }
 async function saveKpis(){
-  var wk=$("up_week").value, period=$("up_period").value;
-  if(!wk){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Pick the "+(period==="monthly"?"month":"week")+" first."; return; }
+  var wk=$("up_week").value;
+  if(!wk){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Pick the week first."; return; }
   if(!pendingKpis||!Object.keys(pendingKpis).length){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Read a file first."; return; }
-  var now=new Date().toISOString();
-  var recs=Object.keys(pendingKpis).map(function(rep){ return Object.assign({rep_name:rep, week_ending:wk, period_type:period, uploaded_by:me.id, uploaded_at:now}, pendingKpis[rep]); });
+  var now=new Date().toISOString(), reps=Object.keys(pendingKpis);
   $("up_save").disabled=true; $("up_msg").style.color="var(--green)"; $("up_msg").textContent="Saving…";
-  var r=await sb.from("bd_fms_kpis").upsert(recs,{onConflict:"rep_name,period_type,week_ending"});
+  // 1) weekly rows for this week
+  var weeklyRecs=reps.map(function(rep){ return Object.assign({rep_name:rep, week_ending:wk, period_type:"weekly", uploaded_by:me.id, uploaded_at:now}, pendingKpis[rep]); });
+  var r1=await sb.from("bd_fms_kpis").upsert(weeklyRecs,{onConflict:"rep_name,period_type,week_ending"});
+  if(r1.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error: "+r1.error.message; return; }
+  // 2) rebuild each rep's monthly total = sum of that month's weekly rows
+  var kr=await sb.from("bd_fms_kpis").select("*");
+  var allK=(kr.data||[]), ym=wk.slice(0,7), monthEnd=new Date(+ym.slice(0,4),+ym.slice(5,7),0).toISOString().slice(0,10);
+  var monthlyRecs=reps.map(function(rep){
+    var rows=allK.filter(function(x){return x.rep_name===rep && (x.period_type||"weekly")==="weekly" && (""+x.week_ending).slice(0,7)===ym;});
+    var a={shipments:0,ar:0,est_costs:0,ap:0,overruns:0,no_ar:0,no_est:0};
+    rows.forEach(function(x){ a.shipments+=(+x.shipments||0); a.ar+=(+x.ar||0); a.est_costs+=(+x.est_costs||0); a.ap+=(+x.ap||0); a.overruns+=(+x.overruns||0); a.no_ar+=(+x.no_ar||0); a.no_est+=(+x.no_est||0); });
+    a.ar=round2(a.ar); a.est_costs=round2(a.est_costs); a.ap=round2(a.ap); a.profit=round2(a.ar-a.est_costs);
+    return Object.assign({rep_name:rep, week_ending:monthEnd, period_type:"monthly", uploaded_by:me.id, uploaded_at:now}, a);
+  });
+  var r2=await sb.from("bd_fms_kpis").upsert(monthlyRecs,{onConflict:"rep_name,period_type,week_ending"});
   $("up_save").disabled=false;
-  if(r.error){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error: "+r.error.message; return; }
-  $("up_msg").textContent="Saved "+recs.length+" reps — "+(period==="monthly"?monthLbl(wk):("week ending "+fmtDate(wk)));
-  toast("FMS KPIs saved for "+recs.length+" reps"); $("up_file").value=""; pendingKpis=null;
+  if(r2.error){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error (monthly): "+r2.error.message; return; }
+  $("up_msg").textContent="Saved "+reps.length+" reps — week ending "+fmtDate(wk)+"; monthly totals rebuilt for "+monthLbl(monthEnd);
+  toast("Weekly + monthly updated for "+reps.length+" reps"); $("up_file").value=""; pendingKpis=null;
   await loadReports();
 }
 
