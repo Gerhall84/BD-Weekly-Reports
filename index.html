@@ -515,17 +515,18 @@ function renderScorecard(){
   var ship=reps.map(function(n){ var k=wkKpi(n); return {rep:n,val:k?Number(k.shipments||0):0}; });
   var maxP=Math.max.apply(null,profit.map(function(d){return Math.abs(d.val);}).concat([1]));
   var maxS=Math.max.apply(null,ship.map(function(d){return d.val;}).concat([1]));
-  var anyK=kpis.some(function(x){return (x.period_type||"weekly")==="weekly" && (""+x.week_ending).slice(0,10)===mgrWeek;});
-  $("mgrProfitChart").innerHTML=anyK?profit.map(function(d){return scoreBar(d.rep,fmtMoney(d.val),maxP>0?Math.round(Math.abs(d.val)/maxP*100):0,d.val<0?"#b00020":"var(--green-acc,#548225)");}).join(""):'<div style="color:var(--muted)">No FMS data uploaded for this week.</div>';
-  $("mgrShipChart").innerHTML=anyK?ship.map(function(d){return scoreBar(d.rep,d.val,maxS>0?Math.round(d.val/maxS*100):0,"var(--navy)");}).join(""):'<div style="color:var(--muted)">No FMS data uploaded for this week.</div>';
+  var anyK=kpis.some(function(x){return (x.period_type||"weekly")===mgrPeriod && (""+x.week_ending).slice(0,10)===mgrWeek;});
+  var noData='<div style="color:var(--muted)">No FMS data uploaded for this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
+  $("mgrProfitChart").innerHTML=anyK?profit.map(function(d){return scoreBar(d.rep,fmtMoney(d.val),maxP>0?Math.round(Math.abs(d.val)/maxP*100):0,d.val<0?"#b00020":"var(--green-acc,#548225)");}).join(""):noData;
+  $("mgrShipChart").innerHTML=anyK?ship.map(function(d){return scoreBar(d.rep,d.val,maxS>0?Math.round(d.val/maxS*100):0,"var(--navy)");}).join(""):noData;
   $("mgrReps").innerHTML=reps.map(function(n){
     var k=wkKpi(n), r=wkReport(n);
     var nums=k?('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 10px">'+
       numTile("Shipments",Number(k.shipments||0),false)+numTile("AR",Number(k.ar||0),true)+numTile("Profit",Number((k.ar||0)-(k.est_costs||0)),true,true)+numTile("Overruns",Number(k.overruns||0),false,false,true)+'</div>')
-      :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this week.</div>';
+      :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
     var hl=r?('<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Key wins</div><div style="white-space:pre-wrap;margin-bottom:8px">'+(r.key_wins?esc(r.key_wins):'—')+'</div>'+
       '<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Issues / support</div><div style="white-space:pre-wrap">'+(r.issues?esc(r.issues):'—')+'</div>')
-      :'<div style="color:#b00020;font-size:12.5px">No report filed this week.</div>';
+      :'<div style="color:#b00020;font-size:12.5px">No report filed this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
     var acts=[];
     if(r) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delReport(\''+r.id+'\',\''+esc(n)+'\')">Delete report</button>');
     if(k) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delKpi(\''+k.id+'\',\''+esc(n)+'\')">Delete KPIs</button>');
