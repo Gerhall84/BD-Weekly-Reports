@@ -393,8 +393,7 @@ window.setPeriod=function(p){
   period=p;
   $("segWeekly").classList.toggle("active",p==="weekly");
   $("segMonthly").classList.toggle("active",p==="monthly");
-  selWeek=curPeriodEnd();
-  refreshMine();
+  selectWeek(curPeriodEnd());
 };
 function buildWeekNav(){
   if(!selWeek) selWeek=curPeriodEnd();
@@ -528,7 +527,11 @@ function renderScorecard(){
     var hl=r?('<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Key wins</div><div style="white-space:pre-wrap;margin-bottom:8px">'+(r.key_wins?esc(r.key_wins):'—')+'</div>'+
       '<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Issues / support</div><div style="white-space:pre-wrap">'+(r.issues?esc(r.issues):'—')+'</div>')
       :'<div style="color:#b00020;font-size:12.5px">No report filed this week.</div>';
-    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+hl+'</div></div>';
+    var acts=[];
+    if(r) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delReport(\''+r.id+'\',\''+esc(n)+'\')">Delete report</button>');
+    if(k) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delKpi(\''+k.id+'\',\''+esc(n)+'\')">Delete KPIs</button>');
+    var actBar=acts.length?'<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'+acts.join("")+'</div>':"";
+    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+hl+actBar+'</div></div>';
   }).join("");
 }
 function refreshTeam(){ if(!mgrWeek) mgrWeek=thisFriday(); buildMgrNav(); renderScorecard(); }
@@ -695,6 +698,18 @@ window.deleteReport=async function(id,rep,wk){
   var r=await sb.from("bd_weekly_reports").delete().eq("id",id);
   if(r.error){ toast("Error: "+r.error.message); return; }
   toast("Report deleted"); await loadReports();
+};
+window.delReport=async function(id,rep){
+  if(!confirm("Delete "+rep+"'s "+(mgrPeriod==="monthly"?"monthly":"weekly")+" report for "+mgrPeLabel(mgrWeek)+"?  This can't be undone.")) return;
+  var r=await sb.from("bd_weekly_reports").delete().eq("id",id);
+  if(r.error){ toast("Error: "+r.error.message); return; }
+  toast("Report deleted"); await loadReports();
+};
+window.delKpi=async function(id,rep){
+  if(!confirm("Delete "+rep+"'s "+(mgrPeriod==="monthly"?"monthly":"weekly")+" FMS numbers for "+mgrPeLabel(mgrWeek)+"?  This can't be undone.")) return;
+  var r=await sb.from("bd_fms_kpis").delete().eq("id",id);
+  if(r.error){ toast("Error: "+r.error.message); return; }
+  toast("KPIs deleted"); await loadReports();
 };
 </script>
 </body>
