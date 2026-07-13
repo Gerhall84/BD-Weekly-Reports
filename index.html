@@ -168,29 +168,32 @@
       </div>
 
       <div class="card">
-        <h2>FMS KPIs <span style="font-weight:normal;display:inline-flex;gap:8px;align-items:center;margin-left:8px"><select id="kpiPeriodType" style="width:auto"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select><select id="kpiPeriod" style="width:auto"></select></span></h2>
-        <div class="body" style="padding:0;overflow-x:auto">
-          <table class="team-table" id="kpiTable"></table>
-          <div id="kpiEmpty" style="padding:20px;text-align:center;color:var(--muted);display:none">No FMS KPIs for this period yet.</div>
+        <div class="body" style="padding:12px 16px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-light btn-sm" id="mgrPrev" title="Previous week">◀</button>
+            <div id="mgrChips" style="display:flex;gap:6px;flex:1;flex-wrap:wrap;min-width:0"></div>
+            <button class="btn btn-light btn-sm" id="mgrNext" title="Next week">▶</button>
+            <select id="mgrJump" style="width:auto"><option value="">Older…</option></select>
+          </div>
         </div>
       </div>
 
       <div class="card">
-        <h2>All reports <span style="font-weight:normal;margin-left:8px"><select id="repFilter" style="width:auto"><option value="">All reps</option></select></span></h2>
-        <div class="body" style="padding:0">
-          <table><thead><tr><th>Rep</th><th>Week ending</th><th>Summary</th><th></th></tr></thead>
-          <tbody id="allList"></tbody></table>
-          <div id="allEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports on file.</div>
-        </div>
+        <h2>Reports filed <span id="mgrWeekLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span></h2>
+        <div class="body" id="mgrSubmit"></div>
       </div>
 
       <div class="card">
-        <h2>Team comparison <span style="font-weight:normal;margin-left:8px"><select id="teamWeek" style="width:auto"></select></span></h2>
-        <div class="body" style="padding:0;overflow-x:auto">
-          <table class="team-table" id="teamTable"></table>
-          <div id="teamEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports filed for this week yet.</div>
+        <h2>Team comparison</h2>
+        <div class="body">
+          <div class="hl-head" style="margin-top:0">Profit by rep</div>
+          <div id="mgrProfitChart"></div>
+          <div class="hl-head">Shipments by rep</div>
+          <div id="mgrShipChart"></div>
         </div>
       </div>
+
+      <div id="mgrReps"></div>
     </div>
   </div>
 </div>
@@ -282,9 +285,9 @@ async function onLogin(user){
     $("up_week").value=thisFriday();
     $("up_read").onclick=readFmsFile;
     $("up_period").onchange=function(){ $("up_dateLbl").textContent=this.value==="monthly"?"Month ending":"Week ending"; };
-    $("kpiPeriodType").onchange=buildKpiPeriods;
-    $("kpiPeriod").onchange=renderTeamKpis;
-    $("repFilter").onchange=renderAllList;
+    $("mgrPrev").onclick=function(){ selectMgrWeek(shiftWeek(mgrWeek||thisFriday(),-7)); };
+    $("mgrNext").onclick=function(){ selectMgrWeek(shiftWeek(mgrWeek||thisFriday(),7)); };
+    $("mgrJump").onchange=function(){ if(this.value) selectMgrWeek(this.value); };
   }
   buildForm();
   $("editReport").onclick=enterEdit;
@@ -316,7 +319,7 @@ async function loadReports(){
   var k=await sb.from("bd_fms_kpis").select("*").order("week_ending",{ascending:false});
   kpis=(k.error)?[]:(k.data||[]);
   refreshMine();
-  if(profile.is_manager){ buildTeamWeeks(); buildKpiPeriods(); renderAllList(); }
+  if(profile.is_manager){ refreshTeam(); }
 }
 
 function myReports(){ return reports.filter(function(x){return x.author_id===me.id;}); }
@@ -424,6 +427,68 @@ function renderMyList(){
 window.openWeek=function(wk){ showTab('mine'); selectWeek(wk); window.scrollTo({top:0,behavior:"smooth"}); };
 
 /* ---------- team view (manager) ---------- */
+/* ---------- manager: Week in Review scorecard ---------- */
+var mgrWeek=null;
+function buildMgrNav(){
+  if(!mgrWeek) mgrWeek=thisFriday();
+  var fridays=recentFridays(8);
+  $("mgrChips").innerHTML=fridays.map(function(w){
+    var filed=reports.some(function(x){return (""+x.week_ending).slice(0,10)===w;});
+    return '<button class="wk-chip'+(w===mgrWeek?" sel":"")+'" onclick="selectMgrWeek(\''+w+'\')">'+weekShort(w)+(filed?' ●':'')+'</button>';
+  }).join("");
+  var older=reports.map(function(x){return (""+x.week_ending).slice(0,10);}).filter(function(w){return fridays.indexOf(w)<0;});
+  older=older.filter(function(v,i,a){return a.indexOf(v)===i;}).sort().reverse();
+  $("mgrJump").innerHTML='<option value="">Older…</option>'+older.map(function(w){return '<option value="'+w+'">'+fmtDate(w)+'</option>';}).join("");
+  $("mgrJump").value=(older.indexOf(mgrWeek)>=0)?mgrWeek:"";
+}
+window.selectMgrWeek=function(wk){ mgrWeek=wk; buildMgrNav(); renderScorecard(); };
+function mgrRoster(){
+  var set={}; (allReps&&allReps.length?allReps:REP_ORDER).forEach(function(n){set[n]=1;});
+  reports.forEach(function(x){ if(x.rep_name) set[x.rep_name]=1; });
+  kpis.forEach(function(x){ if(x.rep_name) set[x.rep_name]=1; });
+  var names=Object.keys(set);
+  return REP_ORDER.filter(function(n){return set[n];}).concat(names.filter(function(n){return REP_ORDER.indexOf(n)<0;}));
+}
+function wkKpi(rep){ return kpis.find(function(x){return x.rep_name===rep && (x.period_type||"weekly")==="weekly" && (""+x.week_ending).slice(0,10)===mgrWeek;}); }
+function wkReport(rep){ return reports.find(function(x){return x.rep_name===rep && (""+x.week_ending).slice(0,10)===mgrWeek;}); }
+function scoreBar(label,disp,pct,color){
+  return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="width:90px;font-size:12.5px">'+esc(label)+'</div>'+
+    '<div style="flex:1;background:#eef1f5;border-radius:5px;height:18px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+'"></div></div>'+
+    '<div style="width:82px;text-align:right;font-weight:bold;font-size:12.5px">'+esc(disp)+'</div></div>';
+}
+function numTile(label,val,money,profit,flag){
+  var disp=money?fmtMoney(val):val, color="var(--navy)";
+  if(profit) color=(val<0?"#b00020":"#2e7d32");
+  if(flag&&val>0) color="#b00020";
+  return '<div style="background:#f1f4f9;border:1px solid var(--line);border-radius:6px;padding:8px 10px"><div style="font-size:17px;font-weight:bold;color:'+color+'">'+esc(disp)+(flag&&val>0?" ⚑":"")+'</div><div style="font-size:10.5px;color:var(--muted);font-weight:bold">'+esc(label)+'</div></div>';
+}
+function renderScorecard(){
+  $("mgrWeekLbl").textContent="· week ending "+fmtDate(mgrWeek);
+  var reps=mgrRoster();
+  $("mgrSubmit").innerHTML=reps.length?('<div style="display:flex;gap:16px;flex-wrap:wrap">'+reps.map(function(n){
+    var filed=!!wkReport(n);
+    return '<div style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;color:#fff;background:'+(filed?"var(--green-acc,#548225)":"#c2c8d0")+'">'+(filed?"✓":"○")+'</span>'+esc(n)+'</div>';
+  }).join("")+'</div>'):'<div style="color:var(--muted)">No reps found.</div>';
+  var profit=reps.map(function(n){ var k=wkKpi(n); return {rep:n,val:k?Number((k.ar||0)-(k.est_costs||0)):0}; });
+  var ship=reps.map(function(n){ var k=wkKpi(n); return {rep:n,val:k?Number(k.shipments||0):0}; });
+  var maxP=Math.max.apply(null,profit.map(function(d){return Math.abs(d.val);}).concat([1]));
+  var maxS=Math.max.apply(null,ship.map(function(d){return d.val;}).concat([1]));
+  var anyK=kpis.some(function(x){return (x.period_type||"weekly")==="weekly" && (""+x.week_ending).slice(0,10)===mgrWeek;});
+  $("mgrProfitChart").innerHTML=anyK?profit.map(function(d){return scoreBar(d.rep,fmtMoney(d.val),maxP>0?Math.round(Math.abs(d.val)/maxP*100):0,d.val<0?"#b00020":"var(--green-acc,#548225)");}).join(""):'<div style="color:var(--muted)">No FMS data uploaded for this week.</div>';
+  $("mgrShipChart").innerHTML=anyK?ship.map(function(d){return scoreBar(d.rep,d.val,maxS>0?Math.round(d.val/maxS*100):0,"var(--navy)");}).join(""):'<div style="color:var(--muted)">No FMS data uploaded for this week.</div>';
+  $("mgrReps").innerHTML=reps.map(function(n){
+    var k=wkKpi(n), r=wkReport(n);
+    var nums=k?('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 10px">'+
+      numTile("Shipments",Number(k.shipments||0),false)+numTile("AR",Number(k.ar||0),true)+numTile("Profit",Number((k.ar||0)-(k.est_costs||0)),true,true)+numTile("Overruns",Number(k.overruns||0),false,false,true)+'</div>')
+      :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this week.</div>';
+    var hl=r?('<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Key wins</div><div style="white-space:pre-wrap;margin-bottom:8px">'+(r.key_wins?esc(r.key_wins):'—')+'</div>'+
+      '<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Issues / support</div><div style="white-space:pre-wrap">'+(r.issues?esc(r.issues):'—')+'</div>')
+      :'<div style="color:#b00020;font-size:12.5px">No report filed this week.</div>';
+    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+hl+'</div></div>';
+  }).join("");
+}
+function refreshTeam(){ if(!mgrWeek) mgrWeek=thisFriday(); buildMgrNav(); renderScorecard(); }
+
 function buildTeamWeeks(){
   var weeks={};
   reports.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
@@ -548,7 +613,7 @@ window.showTab=function(t){
   $("tabTeam").classList.toggle("active",t==="team");
   $("viewMine").style.display=t==="mine"?"block":"none";
   $("viewTeam").style.display=t==="team"?"block":"none";
-  if(t==="team"){ buildTeamWeeks(); buildKpiPeriods(); renderAllList(); }
+  if(t==="team"){ refreshTeam(); }
 };
 
 function renderAllList(){
