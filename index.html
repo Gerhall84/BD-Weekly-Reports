@@ -114,7 +114,16 @@
     <!-- MY REPORT -->
     <div id="viewMine">
       <div class="card">
-        <h2>This week's report <span id="editingTag" style="font-weight:normal;font-size:11.5px"></span></h2>
+        <h2>My reports <button class="btn btn-light btn-sm" id="newReport">+ New report</button></h2>
+        <div class="body" style="padding:0">
+          <table><thead><tr><th>Week ending</th><th>Summary</th><th>Orders secured</th><th></th></tr></thead>
+          <tbody id="myList"></tbody></table>
+          <div id="myEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports yet — start one with “New report”.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Report <span id="editingTag" style="font-weight:normal;font-size:11.5px"></span></h2>
         <div class="body">
           <div class="row-controls" style="margin-bottom:14px">
             <div style="max-width:220px"><label class="fl">Week ending</label><input type="date" id="f_week"></div>
@@ -131,29 +140,21 @@
       </div>
 
       <div class="card" id="myKpiCard">
-        <h2>FMS data <span id="myKpiWeek" style="font-weight:normal;font-size:11.5px"></span></h2>
+        <h2>My FMS data</h2>
         <div class="body" id="myKpiBody"></div>
-      </div>
-
-      <div class="card">
-        <h2>My previous reports</h2>
-        <div class="body" style="padding:0">
-          <table><thead><tr><th>Week ending</th><th>Summary</th><th>Orders secured</th><th></th></tr></thead>
-          <tbody id="myList"></tbody></table>
-          <div id="myEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports yet — fill in this week's above and save.</div>
-        </div>
       </div>
     </div>
 
     <!-- TEAM VIEW (manager) -->
     <div id="viewTeam" style="display:none">
       <div class="card" id="uploadCard">
-        <h2>Upload weekly FMS report</h2>
+        <h2>Upload FMS report</h2>
         <div class="body">
           <div class="row-controls">
-            <div style="max-width:190px"><label class="fl">Rep</label><select id="up_rep"></select></div>
-            <div style="max-width:190px"><label class="fl">Week ending</label><input type="date" id="up_week"></div>
-            <div style="max-width:280px"><label class="fl">FMS file (.xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
+            <div style="max-width:140px"><label class="fl">Period</label><select id="up_period"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+            <div style="max-width:160px"><label class="fl">Rep</label><select id="up_rep"></select></div>
+            <div style="max-width:170px"><label class="fl" id="up_dateLbl">Week ending</label><input type="date" id="up_week"></div>
+            <div style="max-width:250px"><label class="fl">FMS file (.xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
             <button class="btn btn-light" id="up_read" style="align-self:flex-end">Read file</button>
           </div>
           <div id="up_preview" style="margin-top:12px"></div>
@@ -161,19 +162,24 @@
       </div>
 
       <div class="card">
-        <h2>FMS KPIs <span id="kpiWeekLbl" style="font-weight:normal;font-size:11.5px"></span></h2>
+        <h2>FMS KPIs <span style="font-weight:normal;display:inline-flex;gap:8px;align-items:center;margin-left:8px"><select id="kpiPeriodType" style="width:auto"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select><select id="kpiPeriod" style="width:auto"></select></span></h2>
         <div class="body" style="padding:0;overflow-x:auto">
           <table class="team-table" id="kpiTable"></table>
-          <div id="kpiEmpty" style="padding:20px;text-align:center;color:var(--muted);display:none">No FMS KPIs captured for this week yet.</div>
+          <div id="kpiEmpty" style="padding:20px;text-align:center;color:var(--muted);display:none">No FMS KPIs for this period yet.</div>
         </div>
       </div>
 
       <div class="card">
-        <h2>Team reports
-          <span style="font-weight:normal">
-            <select id="teamWeek" style="width:auto;display:inline-block"></select>
-          </span>
-        </h2>
+        <h2>All reports <span style="font-weight:normal;margin-left:8px"><select id="repFilter" style="width:auto"><option value="">All reps</option></select></span></h2>
+        <div class="body" style="padding:0">
+          <table><thead><tr><th>Rep</th><th>Week ending</th><th>Summary</th><th></th></tr></thead>
+          <tbody id="allList"></tbody></table>
+          <div id="allEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports on file.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Team comparison <span style="font-weight:normal;margin-left:8px"><select id="teamWeek" style="width:auto"></select></span></h2>
         <div class="body" style="padding:0;overflow-x:auto">
           <table class="team-table" id="teamTable"></table>
           <div id="teamEmpty" style="padding:22px;text-align:center;color:var(--muted);display:none">No reports filed for this week yet.</div>
@@ -209,8 +215,9 @@ var HLS=[
   ["focus_next","Focus for Next Week"]
 ];
 var REP_ORDER=["Natacha","Eoin","Gary"];
-var METRICS=[["shipments","Shipments"],["ar","AR (revenue)"],["est_costs","Est. costs"],["ap","AP (actual)"],["profit","Profit (AR − est)"],["overruns","Cost overruns"]];
+var METRICS=[["shipments","Shipments"],["ar","AR (revenue)"],["est_costs","Est. costs"],["ap","AP (actual)"],["profit","Profit (AR − est)"],["overruns","Cost overruns"],["no_ar","No AR"],["no_est","No est. cost"]];
 var MONEY={ar:1,est_costs:1,ap:1,profit:1};
+var REDFLAG={overruns:1,no_ar:1,no_est:1};
 function fmtMoney(n){ n=Number(n||0); return "€"+n.toLocaleString("en-IE",{maximumFractionDigits:0}); }
 function round2(n){ return Math.round(n*100)/100; }
 
@@ -263,11 +270,18 @@ async function onLogin(user){
   if(profile.is_manager){
     var pl=await sb.from("bd_profiles").select("rep_name").order("rep_name");
     allReps=(pl.data&&pl.data.length)?pl.data.map(function(x){return x.rep_name;}):REP_ORDER.slice();
-    $("up_rep").innerHTML='<option value="">Rep…</option>'+allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
+    var opts=allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
+    $("up_rep").innerHTML='<option value="">Rep…</option>'+opts;
+    $("repFilter").innerHTML='<option value="">All reps</option>'+opts;
     $("up_week").value=thisFriday();
     $("up_read").onclick=readFmsFile;
+    $("up_period").onchange=function(){ $("up_dateLbl").textContent=this.value==="monthly"?"Month ending":"Week ending"; };
+    $("kpiPeriodType").onchange=buildKpiPeriods;
+    $("kpiPeriod").onchange=renderTeamKpis;
+    $("repFilter").onchange=renderAllList;
   }
   buildForm();
+  $("newReport").onclick=startNewReport;
   $("f_week").value=thisFriday();
   $("f_week").addEventListener("change",loadWeekIntoForm);
   await loadReports();
@@ -293,7 +307,7 @@ async function loadReports(){
   kpis=(k.error)?[]:(k.data||[]);
   loadWeekIntoForm();
   renderMyList();
-  if(profile.is_manager) buildTeamWeeks();
+  if(profile.is_manager){ buildTeamWeeks(); buildKpiPeriods(); renderAllList(); }
 }
 
 function myReports(){ return reports.filter(function(x){return x.author_id===me.id;}); }
@@ -313,8 +327,8 @@ function kpiGrid(k){
       var disp=MONEY[key]?fmtMoney(raw):raw;
       var color="var(--navy)";
       if(key==="profit") color=(raw<0?"#b00020":"#2e7d32");
-      if(key==="overruns"&&raw>0) color="#b00020";
-      var extra=(key==="overruns"&&raw>0)?" ⚑":"";
+      if(REDFLAG[key]&&raw>0) color="#b00020";
+      var extra=(REDFLAG[key]&&raw>0)?" ⚑":"";
       return '<div style="background:#f1f4f9;border:1px solid var(--line);border-radius:6px;padding:10px 12px">'+
         '<div style="font-size:19px;font-weight:bold;color:'+color+'">'+esc(disp)+extra+'</div>'+
         '<div style="font-size:11px;color:var(--muted);font-weight:bold">'+esc(m[1])+'</div></div>';
@@ -322,10 +336,24 @@ function kpiGrid(k){
     '<div style="font-size:11px;color:var(--muted);margin-top:8px">Profit = AR − Estimated costs (FMS profit not used). Overruns = jobs where AP exceeded the estimate.'+(k.uploaded_at?" · uploaded "+fmtDate(k.uploaded_at):"")+'</div>';
 }
 function renderMyKpi(){
+  var mine=kpis.filter(function(x){return x.rep_name===profile.rep_name;});
   var wk=$("f_week").value;
-  var k=kpis.find(function(x){return x.rep_name===profile.rep_name && (""+x.week_ending).slice(0,10)===wk;});
-  $("myKpiWeek").textContent=wk?("· week ending "+fmtDate(wk)):"";
-  $("myKpiBody").innerHTML=k?kpiGrid(k):'<div style="color:var(--muted)">No FMS report uploaded for this week yet.</div>';
+  function pick(pt){ var arr=mine.filter(function(x){return (x.period_type||"weekly")===pt;});
+    return arr.find(function(x){return (""+x.week_ending).slice(0,10)===wk;})||arr[0]||null; }
+  function block(title,k){
+    if(!k) return '<div class="hl-head" style="margin-top:0">'+title+'</div><div style="color:var(--muted);margin-bottom:10px">No '+title.toLowerCase()+' FMS report uploaded yet.</div>';
+    return '<div class="hl-head" style="margin-top:0">'+title+' · '+(k.period_type==="monthly"?"month":"week")+' ending '+fmtDate(k.week_ending)+'</div>'+kpiGrid(k);
+  }
+  $("myKpiBody").innerHTML=block("Weekly",pick("weekly"))+'<div style="height:10px"></div>'+block("Monthly",pick("monthly"));
+}
+function startNewReport(){
+  $("f_week").value=thisFriday();
+  CATS.concat(HLS).forEach(function(c){ $("r_"+c[0]).value=""; });
+  $("editingTag").textContent="· new";
+  $("weekNote").textContent="Week ending "+fmtDate($("f_week").value);
+  $("saveMsg").textContent=""; renderMyKpi();
+  var y=document.getElementById("saveReport").getBoundingClientRect().top+window.scrollY-260;
+  window.scrollTo({top:y,behavior:"smooth"});
 }
 
 async function saveReport(){
@@ -357,7 +385,6 @@ window.openWeek=function(wk){ showTab('mine'); $("f_week").value=wk; loadWeekInt
 function buildTeamWeeks(){
   var weeks={};
   reports.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
-  kpis.forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
   var arr=Object.keys(weeks).sort().reverse();
   var sel=$("teamWeek"); var cur=sel.value;
   sel.innerHTML=arr.map(function(w){return '<option value="'+w+'">Week ending '+fmtDate(w)+'</option>';}).join("");
@@ -368,7 +395,7 @@ function buildTeamWeeks(){
 function renderTeam(){
   var wk=$("teamWeek").value;
   var forWeek=reports.filter(function(x){return (""+x.week_ending).slice(0,10)===wk;});
-  if(!wk||!forWeek.length){ $("teamTable").innerHTML=""; $("teamEmpty").style.display="block"; renderTeamKpis(); return; }
+  if(!wk||!forWeek.length){ $("teamTable").innerHTML=""; $("teamEmpty").style.display="block"; return; }
   $("teamEmpty").style.display="none";
   var byRep={}; forWeek.forEach(function(x){ byRep[x.rep_name]=x; });
   var reps=REP_ORDER.filter(function(n){return byRep[n];})
@@ -382,15 +409,22 @@ function renderTeam(){
     }).join("")+'</tr>';
   }).join("");
   $("teamTable").innerHTML=head+'<tbody>'+rows+'</tbody>';
+}
+function buildKpiPeriods(){
+  var pt=$("kpiPeriodType").value, weeks={};
+  kpis.filter(function(x){return (x.period_type||"weekly")===pt;}).forEach(function(x){ weeks[(""+x.week_ending).slice(0,10)]=1; });
+  var arr=Object.keys(weeks).sort().reverse();
+  var sel=$("kpiPeriod"); var cur=sel.value;
+  sel.innerHTML=arr.map(function(w){return '<option value="'+w+'">'+(pt==="monthly"?"Month":"Week")+' ending '+fmtDate(w)+'</option>';}).join("");
+  if(cur&&arr.indexOf(cur)>=0) sel.value=cur;
   renderTeamKpis();
 }
 function renderTeamKpis(){
-  var wk=$("teamWeek").value;
-  $("kpiWeekLbl").textContent=wk?("· week ending "+fmtDate(wk)):"";
-  var forWeek=kpis.filter(function(x){return (""+x.week_ending).slice(0,10)===wk;});
-  if(!wk||!forWeek.length){ $("kpiTable").innerHTML=""; $("kpiEmpty").style.display="block"; return; }
+  var pt=$("kpiPeriodType").value, wk=$("kpiPeriod").value;
+  var forP=kpis.filter(function(x){return (x.period_type||"weekly")===pt && (""+x.week_ending).slice(0,10)===wk;});
+  if(!wk||!forP.length){ $("kpiTable").innerHTML=""; $("kpiEmpty").style.display="block"; return; }
   $("kpiEmpty").style.display="none";
-  var byRep={}; forWeek.forEach(function(x){ byRep[x.rep_name]=x; });
+  var byRep={}; forP.forEach(function(x){ byRep[x.rep_name]=x; });
   var reps=REP_ORDER.filter(function(n){return byRep[n];})
             .concat(Object.keys(byRep).filter(function(n){return REP_ORDER.indexOf(n)<0;}));
   var head='<thead><tr><th class="rep" style="text-align:left;background:var(--green)">Metric</th>'+
@@ -402,8 +436,8 @@ function renderTeamKpis(){
       if(v==null) return '<td style="text-align:center"><span class="empty">—</span></td>';
       var disp=MONEY[key]?fmtMoney(v):v; var col="";
       if(key==="profit") col="color:"+(v<0?"#b00020":"#2e7d32")+";font-weight:bold";
-      if(key==="overruns"&&v>0) col="color:#b00020;font-weight:bold";
-      return '<td style="text-align:center"><span style="'+col+'">'+esc(disp)+(key==="overruns"&&v>0?" ⚑":"")+'</span></td>';
+      if(REDFLAG[key]&&v>0) col="color:#b00020;font-weight:bold";
+      return '<td style="text-align:center"><span style="'+col+'">'+esc(disp)+(REDFLAG[key]&&v>0?" ⚑":"")+'</span></td>';
     }).join("")+'</tr>';
   }).join("");
   $("kpiTable").innerHTML=head+'<tbody>'+rows+'</tbody>';
@@ -415,7 +449,7 @@ function computeKpis(aoa){
   var hdr=aoa[0].map(function(x){return (""+(x==null?"":x)).trim().toLowerCase();});
   function idx(sub){ for(var i=0;i<hdr.length;i++){ if(hdr[i].indexOf(sub)>=0) return i; } return -1; }
   var iNum=idx("number"), iEst=idx("cost summary"), iAp=idx("ap amount"), iAr=idx("ar amount");
-  var k={shipments:0,ar:0,est_costs:0,ap:0,profit:0,overruns:0};
+  var k={shipments:0,ar:0,est_costs:0,ap:0,profit:0,overruns:0,no_ar:0,no_est:0};
   var apMag=0;
   function nv(row,i){ if(i<0) return 0; var v=parseFloat(row[i]); return isNaN(v)?0:v; }
   for(var r=1;r<aoa.length;r++){
@@ -425,6 +459,8 @@ function computeKpis(aoa){
     k.shipments++;
     var ar=nv(row,iAr), est=nv(row,iEst), ap=nv(row,iAp);
     k.ar+=ar; k.est_costs+=est; apMag+=Math.abs(ap);
+    if(ar===0) k.no_ar++;
+    if(est===0) k.no_est++;
     if(Math.abs(ap)>est && (est>0||Math.abs(ap)>0)) k.overruns++;   // actual cost beat the estimate
   }
   k.ap=round2(apMag);
@@ -454,9 +490,9 @@ async function saveKpis(){
   var rep=$("up_rep").value, wk=$("up_week").value;
   if(!rep||!wk){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Pick the rep and week first."; return; }
   if(!pendingKpis){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Read a file first."; return; }
-  var rec=Object.assign({rep_name:rep, week_ending:wk, uploaded_by:me.id, uploaded_at:new Date().toISOString()}, pendingKpis);
+  var rec=Object.assign({rep_name:rep, week_ending:wk, period_type:$("up_period").value, uploaded_by:me.id, uploaded_at:new Date().toISOString()}, pendingKpis);
   $("up_save").disabled=true; $("up_msg").style.color="var(--green)"; $("up_msg").textContent="Saving…";
-  var r=await sb.from("bd_fms_kpis").upsert(rec,{onConflict:"rep_name,week_ending"});
+  var r=await sb.from("bd_fms_kpis").upsert(rec,{onConflict:"rep_name,period_type,week_ending"});
   $("up_save").disabled=false;
   if(r.error){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error: "+r.error.message; return; }
   $("up_msg").textContent="Saved — "+rep+", week ending "+fmtDate(wk);
@@ -470,7 +506,34 @@ window.showTab=function(t){
   $("tabTeam").classList.toggle("active",t==="team");
   $("viewMine").style.display=t==="mine"?"block":"none";
   $("viewTeam").style.display=t==="team"?"block":"none";
-  if(t==="team") buildTeamWeeks();
+  if(t==="team"){ buildTeamWeeks(); buildKpiPeriods(); renderAllList(); }
+};
+
+function renderAllList(){
+  var f=$("repFilter").value;
+  var list=reports.slice();
+  if(f) list=list.filter(function(x){return x.rep_name===f;});
+  $("allEmpty").style.display=list.length?"none":"block";
+  $("allList").innerHTML=list.map(function(x){
+    var wk=(""+x.week_ending).slice(0,10);
+    return '<tr><td style="font-weight:bold;color:var(--navy)">'+esc(x.rep_name||"")+'</td>'+
+      '<td>'+fmtDate(x.week_ending)+'</td>'+
+      '<td>'+esc((x.week_summary||"").slice(0,80))+((x.week_summary||"").length>80?"…":"")+'</td>'+
+      '<td style="white-space:nowrap">'+
+      '<button class="btn btn-light btn-sm" onclick="openTeamWeek(\''+wk+'\')">Open</button> '+
+      '<button class="btn btn-sm" style="background:#fff;color:#b00020;border:1px solid #e3b6bd" onclick="deleteReport(\''+x.id+'\',\''+esc(x.rep_name||"")+'\',\''+wk+'\')">Delete</button></td></tr>';
+  }).join("");
+}
+window.openTeamWeek=function(wk){
+  var sel=$("teamWeek");
+  if(sel){ var has=Array.prototype.some.call(sel.options,function(o){return o.value===wk;}); if(has){ sel.value=wk; renderTeam(); } }
+  document.getElementById("teamTable").scrollIntoView({behavior:"smooth",block:"center"});
+};
+window.deleteReport=async function(id,rep,wk){
+  if(!confirm("Delete "+rep+"'s report for week ending "+fmtDate(wk)+"?  This can't be undone.")) return;
+  var r=await sb.from("bd_weekly_reports").delete().eq("id",id);
+  if(r.error){ toast("Error: "+r.error.message); return; }
+  toast("Report deleted"); await loadReports();
 };
 </script>
 </body>
