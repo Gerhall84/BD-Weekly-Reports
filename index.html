@@ -169,7 +169,7 @@
           <div class="row-controls">
             <div style="max-width:140px"><label class="fl">Period</label><select id="up_period"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
             <div style="max-width:160px"><label class="fl">Rep</label><select id="up_rep"></select></div>
-            <div style="max-width:170px"><label class="fl" id="up_dateLbl">Week ending</label><input type="date" id="up_week"></div>
+            <div style="max-width:200px" id="up_dateWrap"><label class="fl" id="up_dateLbl">Week ending</label><input type="date" id="up_week"></div>
             <div style="max-width:250px"><label class="fl">FMS file (.xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
             <button class="btn btn-light" id="up_read" style="align-self:flex-end">Read file</button>
           </div>
@@ -291,9 +291,9 @@ async function onLogin(user){
     allReps=(pl.data&&pl.data.length)?pl.data.map(function(x){return x.rep_name;}):REP_ORDER.slice();
     var opts=allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
     $("up_rep").innerHTML='<option value="">Rep…</option>'+opts;
-    $("up_week").value=thisFriday();
+    setUploadDateControl();
     $("up_read").onclick=readFmsFile;
-    $("up_period").onchange=function(){ $("up_dateLbl").textContent=this.value==="monthly"?"Month ending":"Week ending"; };
+    $("up_period").onchange=setUploadDateControl;
     $("mgrPrev").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,-1)); };
     $("mgrNext").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,1)); };
     $("mgrJump").onchange=function(){ if(this.value) selectMgrWeek(this.value); };
@@ -618,6 +618,16 @@ function computeKpis(aoa){
   k.profit=round2(k.ar-k.est_costs);     // your formula: AR − Estimated costs (FMS profit ignored)
   k.ar=round2(k.ar); k.est_costs=round2(k.est_costs);
   return k;
+}
+function setUploadDateControl(){
+  var monthly=$("up_period").value==="monthly";
+  if(monthly){
+    var opts=recentMonthEnds(12).map(function(me){ return '<option value="'+me+'">'+monthLbl(me)+'</option>'; }).join("");
+    $("up_dateWrap").innerHTML='<label class="fl">Month</label><select id="up_week">'+opts+'</select>';
+  } else {
+    $("up_dateWrap").innerHTML='<label class="fl">Week ending</label><input type="date" id="up_week">';
+    $("up_week").value=thisFriday();
+  }
 }
 function readFmsFile(){
   var f=$("up_file").files[0]; if(!f){ $("up_preview").innerHTML='<span style="color:#b00020">Choose a file first.</span>'; return; }
