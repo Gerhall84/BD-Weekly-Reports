@@ -504,6 +504,14 @@ function numTile(label,val,money,profit,flag){
   if(flag&&val>0) color="#b00020";
   return '<div style="background:#f1f4f9;border:1px solid var(--line);border-radius:6px;padding:8px 10px"><div style="font-size:17px;font-weight:bold;color:'+color+'">'+esc(disp)+(flag&&val>0?" ⚑":"")+'</div><div style="font-size:10.5px;color:var(--muted);font-weight:bold">'+esc(label)+'</div></div>';
 }
+function fullReportHtml(r){
+  return CATS.concat([["__hl__",(mgrPeriod==="monthly"?"Monthly":"Weekly")+" Highlights"]]).concat(HLS).map(function(c){
+    if(c[0]==="__hl__") return '<div class="hl-head" style="margin-top:4px">'+esc(c[1])+'</div>';
+    var v=r[c[0]];
+    return '<div style="margin-bottom:9px"><div style="font-size:10.5px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">'+esc(c[1])+'</div><div style="white-space:pre-wrap;font-size:13px">'+(v?esc(v):'<span style="color:var(--muted)">—</span>')+'</div></div>';
+  }).join("");
+}
+window.toggleRepReport=function(btn){ var d=btn.parentNode.querySelector(".repFull"); if(!d) return; var hid=d.style.display==="none"; d.style.display=hid?"block":"none"; btn.textContent=hid?"Hide full report ▴":"View full report ▾"; };
 function renderScorecard(){
   $("mgrWeekLbl").textContent="· "+mgrPeLabel(mgrWeek);
   var reps=mgrRoster();
@@ -524,8 +532,8 @@ function renderScorecard(){
     var nums=k?('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 10px">'+
       numTile("Shipments",Number(k.shipments||0),false)+numTile("AR",Number(k.ar||0),true)+numTile("Profit",Number((k.ar||0)-(k.est_costs||0)),true,true)+numTile("Overruns",Number(k.overruns||0),false,false,true)+'</div>')
       :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
-    var hl=r?('<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Key wins</div><div style="white-space:pre-wrap;margin-bottom:8px">'+(r.key_wins?esc(r.key_wins):'—')+'</div>'+
-      '<div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Issues / support</div><div style="white-space:pre-wrap">'+(r.issues?esc(r.issues):'—')+'</div>')
+    var hl=r?('<button class="btn btn-light btn-sm" style="border:1px solid var(--line)" onclick="toggleRepReport(this)">View full report ▾</button>'+
+      '<div class="repFull" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">'+fullReportHtml(r)+'</div>')
       :'<div style="color:#b00020;font-size:12.5px">No report filed this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
     var acts=[];
     if(r) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delReport(\''+r.id+'\',\''+esc(n)+'\')">Delete report</button>');
