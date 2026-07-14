@@ -511,7 +511,13 @@ function fullReportHtml(r){
     return '<div style="margin-bottom:9px"><div style="font-size:10.5px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">'+esc(c[1])+'</div><div style="white-space:pre-wrap;font-size:13px">'+(v?esc(v):'<span style="color:var(--muted)">—</span>')+'</div></div>';
   }).join("");
 }
-window.toggleRepReport=function(btn){ var d=btn.parentNode.querySelector(".repFull"); if(!d) return; var hid=d.style.display==="none"; d.style.display=hid?"block":"none"; btn.textContent=hid?"Hide full report ▴":"View full report ▾"; };
+window.viewRepReport=function(rep){
+  var r=wkReport(rep);
+  $("repModalTitle").textContent=rep+" — "+mgrPeLabel(mgrWeek);
+  $("repModalBody").innerHTML=r?fullReportHtml(r):'<div style="color:var(--muted)">No report filed for this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
+  $("repModal").style.display="block";
+};
+window.closeRepModal=function(){ $("repModal").style.display="none"; };
 function renderScorecard(){
   $("mgrWeekLbl").textContent="· "+mgrPeLabel(mgrWeek);
   var reps=mgrRoster();
@@ -532,14 +538,13 @@ function renderScorecard(){
     var nums=k?('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 10px">'+
       numTile("Shipments",Number(k.shipments||0),false)+numTile("AR",Number(k.ar||0),true)+numTile("Profit",Number((k.ar||0)-(k.est_costs||0)),true,true)+numTile("Overruns",Number(k.overruns||0),false,false,true)+'</div>')
       :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
-    var hl=r?('<button class="btn btn-light btn-sm" style="border:1px solid var(--line)" onclick="toggleRepReport(this)">View full report ▾</button>'+
-      '<div class="repFull" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">'+fullReportHtml(r)+'</div>')
-      :'<div style="color:#b00020;font-size:12.5px">No report filed this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
-    var acts=[];
+    var filed=!!r;
+    var statusLine='<div style="font-size:12.5px;margin-bottom:8px;font-weight:bold;color:'+(filed?'#2e7d32':'#b00020')+'">'+(filed?'✓ Report filed':'○ No report filed this '+(mgrPeriod==="monthly"?"month":"week"))+'</div>';
+    var acts=['<button class="btn btn-light btn-sm" style="border:1px solid var(--line)" onclick="viewRepReport(\''+esc(n)+'\')">View report</button>'];
     if(r) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delReport(\''+r.id+'\',\''+esc(n)+'\')">Delete report</button>');
     if(k) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delKpi(\''+k.id+'\',\''+esc(n)+'\')">Delete KPIs</button>');
-    var actBar=acts.length?'<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'+acts.join("")+'</div>':"";
-    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+hl+actBar+'</div></div>';
+    var actBar='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'+acts.join("")+'</div>';
+    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+statusLine+actBar+'</div></div>';
   }).join("");
 }
 function refreshTeam(){ if(!mgrWeek) mgrWeek=thisFriday(); buildMgrNav(); renderScorecard(); }
@@ -777,5 +782,11 @@ window.delKpi=async function(id,rep){
   toast("KPIs deleted"); await loadReports();
 };
 </script>
+<div id="repModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;padding:16px;overflow:auto" onclick="if(event.target===this)closeRepModal()">
+  <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.3)">
+    <div style="background:var(--navy);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center"><b id="repModalTitle">Report</b><button onclick="closeRepModal()" style="background:none;border:0;color:#fff;font-size:22px;cursor:pointer;line-height:1">×</button></div>
+    <div style="padding:16px" id="repModalBody"></div>
+  </div>
+</div>
 </body>
 </html>
