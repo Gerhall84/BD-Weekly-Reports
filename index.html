@@ -139,14 +139,20 @@
       </div>
 
       <div class="card">
+        <h2>My top customers <span id="myCustLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span></h2>
+        <div class="body" id="myCustomers"></div>
+      </div>
+
+      <div class="card">
         <h2>Weekly report <span id="reportWeekLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span><span style="float:right"><button class="btn btn-light btn-sm" id="editReport">Edit</button></span></h2>
         <div class="body">
           <input type="hidden" id="f_week">
           <div id="reportRead"></div>
           <div id="reportBody" style="display:none">
+            <div class="hl-head" style="margin-top:0">Weekly numbers</div>
+            <div id="kpiFields" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px"></div>
+            <div class="hl-head">Report</div>
             <div class="grid2" id="catFields"></div>
-            <div class="hl-head">Weekly Highlights</div>
-            <div class="grid2" id="hlFields"></div>
             <div class="save-bar">
               <button class="btn btn-green" id="saveReport">Save report</button>
               <button class="btn btn-light" id="cancelReport">Cancel</button>
@@ -167,11 +173,10 @@
         <h2>Upload FMS report</h2>
         <div class="body">
           <div class="row-controls">
-            <div style="max-width:200px"><label class="fl">Week ending</label><input type="date" id="up_week"></div>
-            <div style="max-width:280px"><label class="fl">FMS file (all reps, weekly, .xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
+            <div style="max-width:340px"><label class="fl">FMS export (all reps, .xlsx)</label><input type="file" id="up_file" accept=".xlsx,.xls"></div>
             <button class="btn btn-light" id="up_read" style="align-self:flex-end">Read file</button>
           </div>
-          <div style="font-size:11.5px;color:var(--muted);margin-top:6px">One upload fills the weekly numbers for that week and rebuilds the monthly totals (sum of the month’s weeks) for every rep.</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Upload the full FMS export. Each job is filed by its own date, so every week and month updates automatically — re-uploading refreshes them all.</div>
           <div id="up_preview" style="margin-top:12px"></div>
         </div>
       </div>
@@ -190,6 +195,16 @@
       <div class="card">
         <h2>Reports filed <span id="mgrWeekLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span></h2>
         <div class="body" id="mgrSubmit"></div>
+      </div>
+
+      <div class="card">
+        <h2>Team activity <span id="mgrActLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span></h2>
+        <div class="body" id="mgrActivity"></div>
+      </div>
+
+      <div class="card">
+        <h2>Top customers <span id="mgrCustLbl" style="font-weight:normal;font-size:12px;color:var(--muted)"></span></h2>
+        <div class="body" id="mgrCustomers"></div>
       </div>
 
       <div class="card">
@@ -223,14 +238,13 @@ function fmtDate(d){if(!d)return "";var p=(""+d).slice(0,10).split("-");return p
 
 var CATS=[
   ["week_summary","Week Summary"],["new_clients","New Clients Won"],
-  ["client_visits","Client Visits / Meetings"],["quotations","Quotations Submitted"],
   ["pipeline","Sales Opportunities / Pipeline"],["orders_secured","Orders Secured"],
   ["followups","Key Follow-ups for Next Week"],["issues","Issues / Support Required"]
 ];
-var HLS=[
-  ["major_opportunities","Major Opportunities"],["key_wins","Key Wins"],
-  ["challenges","Challenges / Risks"],["mgmt_support","Management Support Required"],
-  ["focus_next","Focus for Next Week"]
+var HLS=[];  // Weekly Highlights removed
+var RKPI=[
+  ["q_total","Quotations"],["q_won","Quotes won"],["q_lost","Quotes lost"],
+  ["q_pending","Pending response"],["visits","Client visits"],["calls","Client calls"]
 ];
 var REP_ORDER=["Natacha","Eoin","Gary"];
 var DEPARTED={"Eoin":{weekly:"2026-07-10", monthly:"2026-07-31"}};  // hidden for periods ending after these dates
@@ -240,7 +254,7 @@ var REDFLAG={overruns:1,no_ar:1,no_est:1};
 function fmtMoney(n){ n=Number(n||0); return "€"+n.toLocaleString("en-IE",{maximumFractionDigits:0}); }
 function round2(n){ return Math.round(n*100)/100; }
 
-var me=null, profile=null, reports=[], kpis=[], allReps=[], pendingKpis=null;
+var me=null, profile=null, reports=[], kpis=[], jobs=[], allReps=[], pendingKpis=null, pendingJobs=null;
 
 /* ---------- week helper: Friday of current week ---------- */
 function thisFriday(){
@@ -290,7 +304,6 @@ async function onLogin(user){
     var pl=await sb.from("bd_profiles").select("rep_name").order("rep_name");
     allReps=(pl.data&&pl.data.length)?pl.data.map(function(x){return x.rep_name;}):REP_ORDER.slice();
     var opts=allReps.map(function(n){return '<option>'+esc(n)+'</option>';}).join("");
-    $("up_week").value=thisFriday();
     $("up_read").onclick=readFmsFile;
     $("mgrPrev").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,-1)); };
     $("mgrNext").onclick=function(){ selectMgrWeek(shiftMgr(mgrWeek,1)); };
@@ -309,13 +322,29 @@ async function onLogin(user){
 
 /* ---------- build editor ---------- */
 function buildForm(){
+  $("kpiFields").innerHTML=RKPI.map(function(c){
+    return '<div class="field"><label class="fl" style="color:'+(KPI_COLOR[c[0]]||"#1F3864")+'">'+esc(c[1])+'</label><input type="number" min="0" inputmode="numeric" id="r_'+c[0]+'" style="text-align:center;font-weight:bold;font-size:16px"></div>';
+  }).join("");
   $("catFields").innerHTML=CATS.map(function(c){
     return '<div class="field"><label class="fl">'+esc(c[1])+'</label><textarea id="r_'+c[0]+'"></textarea></div>';
   }).join("");
-  $("hlFields").innerHTML=HLS.map(function(c){
-    return '<div class="field"><label class="fl">'+esc(c[1])+'</label><textarea id="r_'+c[0]+'" style="min-height:48px"></textarea></div>';
-  }).join("");
   $("saveReport").onclick=saveReport;
+}
+var KPI_COLOR={q_total:"#1F3864",q_won:"#2e7d32",q_lost:"#b00020",q_pending:"#b8860b",visits:"#1F3864",calls:"#1F3864"};
+function actTile(label,val,color){
+  return '<div style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px 6px;text-align:center"><div style="font-size:23px;font-weight:800;color:'+color+';line-height:1">'+val+'</div><div style="font-size:9.5px;color:var(--muted);font-weight:bold;margin-top:5px;text-transform:uppercase;letter-spacing:.3px">'+label+'</div></div>';
+}
+function kpiRow(getter){
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">'+RKPI.map(function(c){
+    return actTile(c[1],getter(c[0]),KPI_COLOR[c[0]]||"#1F3864");
+  }).join("")+'</div>';
+}
+function kpiTiles(r){
+  var g=function(k){return r&&r[k]!=null?+r[k]:0;};
+  var won=g("q_won"), lost=g("q_lost"), dec=won+lost, wr=dec?Math.round(won/dec*100):null;
+  return kpiRow(g)+(wr!==null
+    ? '<div style="font-size:12px;color:var(--muted);margin:8px 0 16px">Quote win rate: <b style="color:#1F3864">'+wr+'%</b> · '+won+' won of '+dec+' decided'+(g("q_pending")?(' · '+g("q_pending")+' still pending'):'')+'</div>'
+    : '<div style="margin-bottom:14px"></div>');
 }
 
 /* ---------- data ---------- */
@@ -325,6 +354,8 @@ async function loadReports(){
   reports=r.data||[];
   var k=await sb.from("bd_fms_kpis").select("*").order("week_ending",{ascending:false});
   kpis=(k.error)?[]:(k.data||[]);
+  var jr=await sb.from("bd_fms_jobs").select("*");
+  jobs=(jr.error)?[]:(jr.data||[]);
   refreshMine();
   if(profile.is_manager){ refreshTeam(); }
 }
@@ -359,6 +390,8 @@ function renderMyKpi(){
   var k=mine.find(function(x){return (""+x.week_ending).slice(0,10)===selWeek;});
   $("kpiWeekLbl").textContent=selWeek?("· "+peLabel(selWeek)):"";
   $("myKpiBody").innerHTML=k?kpiGrid(k):'<div style="color:var(--muted)">No '+period+' FMS data uploaded for this '+(period==="monthly"?"month":"week")+' yet.</div>';
+  $("myCustLbl").textContent=selWeek?("· "+peLabel(selWeek)):"";
+  $("myCustomers").innerHTML=custCard(jobs.filter(function(j){return j.rep_name===profile.rep_name && jobInPeriod(j,selWeek,period);}));
 }
 
 /* ---------- period navigator + read view ---------- */
@@ -415,15 +448,15 @@ function renderReadView(){
     $("startReport").onclick=enterEdit; return;
   }
   $("editReport").style.display="";
-  $("reportRead").innerHTML=CATS.concat([["__hl__",(period==="monthly"?"Monthly":"Weekly")+" Highlights"]]).concat(HLS).map(function(c){
-    if(c[0]==="__hl__") return '<div class="hl-head">'+esc(c[1])+'</div>';
-    var v=r[c[0]];
-    return '<div style="margin-bottom:11px"><div style="font-size:11px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">'+esc(c[1])+'</div><div style="white-space:pre-wrap">'+(v?esc(v):'<span style="color:var(--muted)">—</span>')+'</div></div>';
+  var secs=CATS.filter(function(c){return r[c[0]] && (""+r[c[0]]).trim();}).map(function(c){
+    return '<div style="margin-bottom:13px"><div style="font-size:11px;font-weight:bold;color:#1F3864;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">'+esc(c[1])+'</div><div style="white-space:pre-wrap;line-height:1.5">'+esc(r[c[0]])+'</div></div>';
   }).join("");
+  $("reportRead").innerHTML=kpiTiles(r)+(secs||'<div style="color:var(--muted);font-size:13px">No written notes added this '+(period==="monthly"?"month":"week")+'.</div>');
 }
 function enterEdit(){
   var r=reportFor(selWeek);
-  CATS.concat(HLS).forEach(function(c){ $("r_"+c[0]).value=r?(r[c[0]]||""):""; });
+  CATS.forEach(function(c){ $("r_"+c[0]).value=r?(r[c[0]]||""):""; });
+  RKPI.forEach(function(c){ $("r_"+c[0]).value=(r&&r[c[0]]!=null)?r[c[0]]:""; });
   $("saveMsg").textContent="";
   $("reportRead").style.display="none"; $("reportBody").style.display="block"; $("editReport").style.display="none";
 }
@@ -435,7 +468,8 @@ async function saveReport(){
   var wk=$("f_week").value;
   if(!wk){ $("saveMsg").style.color="#b00020"; $("saveMsg").textContent="Pick the "+(period==="monthly"?"month":"week")+" first."; return; }
   var rec={author_id:me.id, rep_name:profile.rep_name, week_ending:wk, period_type:period, updated_at:new Date().toISOString()};
-  CATS.concat(HLS).forEach(function(c){ rec[c[0]]=$("r_"+c[0]).value.trim()||null; });
+  CATS.forEach(function(c){ rec[c[0]]=$("r_"+c[0]).value.trim()||null; });
+  RKPI.forEach(function(c){ var v=$("r_"+c[0]).value; rec[c[0]]=(v===""?null:parseInt(v,10)||0); });
   $("saveReport").disabled=true; $("saveMsg").style.color="var(--green)"; $("saveMsg").textContent="Saving…";
   var r=await sb.from("bd_weekly_reports").upsert(rec,{onConflict:"author_id,period_type,week_ending"});
   $("saveReport").disabled=false;
@@ -505,11 +539,10 @@ function numTile(label,val,money,profit,flag){
   return '<div style="background:#f1f4f9;border:1px solid var(--line);border-radius:6px;padding:8px 10px"><div style="font-size:17px;font-weight:bold;color:'+color+'">'+esc(disp)+(flag&&val>0?" ⚑":"")+'</div><div style="font-size:10.5px;color:var(--muted);font-weight:bold">'+esc(label)+'</div></div>';
 }
 function fullReportHtml(r){
-  return CATS.concat([["__hl__",(mgrPeriod==="monthly"?"Monthly":"Weekly")+" Highlights"]]).concat(HLS).map(function(c){
-    if(c[0]==="__hl__") return '<div class="hl-head" style="margin-top:4px">'+esc(c[1])+'</div>';
-    var v=r[c[0]];
-    return '<div style="margin-bottom:9px"><div style="font-size:10.5px;font-weight:bold;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">'+esc(c[1])+'</div><div style="white-space:pre-wrap;font-size:13px">'+(v?esc(v):'<span style="color:var(--muted)">—</span>')+'</div></div>';
+  var secs=CATS.filter(function(c){return r[c[0]] && (""+r[c[0]]).trim();}).map(function(c){
+    return '<div style="margin-bottom:11px"><div style="font-size:10.5px;font-weight:bold;color:#1F3864;text-transform:uppercase;letter-spacing:.4px">'+esc(c[1])+'</div><div style="white-space:pre-wrap;font-size:13px;line-height:1.5">'+esc(r[c[0]])+'</div></div>';
   }).join("");
+  return kpiTiles(r)+(secs||'<div style="color:var(--muted);font-size:13px">No written notes.</div>');
 }
 window.viewRepReport=function(rep){
   var r=wkReport(rep);
@@ -533,18 +566,27 @@ function renderScorecard(){
   var noData='<div style="color:var(--muted)">No FMS data uploaded for this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
   $("mgrProfitChart").innerHTML=anyK?profit.map(function(d){return scoreBar(d.rep,fmtMoney(d.val),maxP>0?Math.round(Math.abs(d.val)/maxP*100):0,d.val<0?"#b00020":"var(--green-acc,#548225)");}).join(""):noData;
   $("mgrShipChart").innerHTML=anyK?ship.map(function(d){return scoreBar(d.rep,d.val,maxS>0?Math.round(d.val/maxS*100):0,"var(--navy)");}).join(""):noData;
+  // team activity totals (rep-entered weekly numbers)
+  var tot={}; RKPI.forEach(function(c){tot[c[0]]=0;});
+  var anyRep=false;
+  reps.forEach(function(n){ var r=wkReport(n); if(r){ anyRep=true; RKPI.forEach(function(c){ tot[c[0]]+=(+r[c[0]]||0); }); } });
+  $("mgrActLbl").textContent="· "+mgrPeLabel(mgrWeek);
+  $("mgrActivity").innerHTML=anyRep?kpiRow(function(k){return tot[k];}):'<div style="color:var(--muted)">No reports filed for this '+(mgrPeriod==="monthly"?"month":"week")+' yet.</div>';
+  $("mgrCustLbl").textContent="· "+mgrPeLabel(mgrWeek);
+  $("mgrCustomers").innerHTML=custCard(jobs.filter(function(j){return jobInPeriod(j,mgrWeek,mgrPeriod);}));
   $("mgrReps").innerHTML=reps.map(function(n){
     var k=wkKpi(n), r=wkReport(n);
     var nums=k?('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 10px">'+
       numTile("Shipments",Number(k.shipments||0),false)+numTile("AR",Number(k.ar||0),true)+numTile("Profit",Number((k.ar||0)-(k.est_costs||0)),true,true)+numTile("Overruns",Number(k.overruns||0),false,false,true)+'</div>')
       :'<div style="color:var(--muted);font-size:12.5px;margin:4px 0 8px">No FMS data for this rep this '+(mgrPeriod==="monthly"?"month":"week")+'.</div>';
+    var act=r?kpiTiles(r):'';
     var filed=!!r;
     var statusLine='<div style="font-size:12.5px;margin-bottom:8px;font-weight:bold;color:'+(filed?'#2e7d32':'#b00020')+'">'+(filed?'✓ Report filed':'○ No report filed this '+(mgrPeriod==="monthly"?"month":"week"))+'</div>';
     var acts=['<button class="btn btn-light btn-sm" style="border:1px solid var(--line)" onclick="viewRepReport(\''+esc(n)+'\')">View report</button>'];
     if(r) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delReport(\''+r.id+'\',\''+esc(n)+'\')">Delete report</button>');
     if(k) acts.push('<button class="btn btn-light btn-sm" style="border:1px solid var(--line);color:#b00020" onclick="delKpi(\''+k.id+'\',\''+esc(n)+'\')">Delete KPIs</button>');
     var actBar='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'+acts.join("")+'</div>';
-    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+statusLine+actBar+'</div></div>';
+    return '<div class="card"><h2>'+esc(n)+'</h2><div class="body">'+nums+act+statusLine+actBar+'</div></div>';
   }).join("");
 }
 function refreshTeam(){ if(!mgrWeek) mgrWeek=thisFriday(); buildMgrNav(); renderScorecard(); }
@@ -653,84 +695,120 @@ function repFor(salesName){
   return null;
 }
 function isActive(rep,periodEnd,period){ var d=DEPARTED[rep]; if(!d) return true; if(!periodEnd) return false; var c=(period==="monthly")?d.monthly:d.weekly; return (""+periodEnd).slice(0,10)<=c; }
-function computeAllKpis(aoa,periodEnd,period){
-  if(!aoa||!aoa.length) return null;
+function xlDate(v){
+  if(v==null||v==="") return null;
+  if(v instanceof Date) return isNaN(v)?null:v.toISOString().slice(0,10);
+  if(typeof v==="number"){ var d=new Date(Math.round((v-25569)*86400*1000)); return isNaN(d)?null:d.toISOString().slice(0,10); }
+  var d2=new Date(v); return isNaN(d2)?null:d2.toISOString().slice(0,10);
+}
+function weekEndingFri(iso){ var p=(""+iso).split("-"); var d=new Date(+p[0],+p[1]-1,+p[2]); d.setDate(d.getDate()+((5-d.getDay()+7)%7)); return d.toISOString().slice(0,10); }
+function monthEndOf(iso){ var p=(""+iso).split("-"); return new Date(+p[0],+p[1],0).toISOString().slice(0,10); }
+function jobInPeriod(j,pe,period){ var jd=(""+j.job_date).slice(0,10); if(!jd) return false; return period==="monthly"?(monthEndOf(jd)===pe):(weekEndingFri(jd)===pe); }
+function topCustomers(list,n){
+  var map={};
+  list.forEach(function(j){ var c=(j.customer||"").trim()||"(no customer)"; var k=map[c]||(map[c]={cust:c,jobs:0,ar:0,profit:0}); k.jobs++; k.ar+=(+j.ar||0); k.profit+=((+j.ar||0)-(+j.est_costs||0)); });
+  return Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b.ar-a.ar;}).slice(0,n||8);
+}
+function custCard(list){
+  var top=topCustomers(list,8);
+  if(!top.length) return '<div style="color:var(--muted)">No customer data for this period.</div>';
+  var maxAr=Math.max.apply(null,top.map(function(d){return Math.abs(d.ar);}).concat([1]));
+  return top.map(function(d){
+    var pct=maxAr>0?Math.round(Math.abs(d.ar)/maxAr*100):0;
+    return '<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;margin-bottom:3px"><span style="font-weight:bold">'+esc(d.cust)+'</span><span style="color:var(--muted);white-space:nowrap">'+d.jobs+' jobs · '+fmtMoney(d.ar)+' · <b style="color:'+(d.profit<0?"#b00020":"#2e7d32")+'">'+fmtMoney(d.profit)+'</b></span></div><div style="background:#eef1f5;border-radius:5px;height:10px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:var(--green-acc,#548225)"></div></div></div>';
+  }).join("");
+}
+
+function parseJobs(aoa){
+  if(!aoa||!aoa.length) return {jobs:[]};
   var hdr=aoa[0].map(function(x){return (""+(x==null?"":x)).trim().toLowerCase();});
-  function ix(sub){ for(var i=0;i<hdr.length;i++){ if(hdr[i].indexOf(sub)>=0) return i; } return -1; }
-  var iNum=ix("number"), iEst=ix("cost summary"), iAp=ix("ap amount"), iAr=ix("ar amount"), iSp=ix("sales person");
-  if(iSp<0) return {__nosales:true};
+  function ix(){ var subs=[].slice.call(arguments); for(var s=0;s<subs.length;s++){ for(var i=0;i<hdr.length;i++){ if(hdr[i]===subs[s]) return i; } } for(var t=0;t<subs.length;t++){ for(var j=0;j<hdr.length;j++){ if(hdr[j].indexOf(subs[t])>=0) return j; } } return -1; }
+  var iNo=ix("number"), iDate=ix("date"), iEst=ix("cost summary"), iAp=ix("ap amount"), iAr=ix("ar amount"), iSp=ix("sales person"), iCust=ix("customer");
+  if(iSp<0) return {nosales:true};
+  if(iNo<0) return {noNum:true};
   function nv(row,i){ if(i<0) return 0; var v=parseFloat(row[i]); return isNaN(v)?0:v; }
-  var byRep={}, skippedBlank=0, skippedUnknown=0, skippedDeparted=0;
+  var jobs=[], skippedBlank=0, skippedUnknown=0, skippedNoDate=0;
   for(var r=1;r<aoa.length;r++){
     var row=aoa[r]; if(!row) continue;
-    var num=iNum>=0?row[iNum]:null; if(num==null||(""+num).trim()==="") continue;
+    var no=iNo>=0?(""+(row[iNo]==null?"":row[iNo])).trim():""; if(!no) continue;
     var sp=(""+(row[iSp]||"")).trim();
     if(!sp){ skippedBlank++; continue; }
-    var rep=repFor(sp);
-    if(!rep){ skippedUnknown++; continue; }
-    if(!isActive(rep,periodEnd,period)){ skippedDeparted++; continue; }
-    var k=byRep[rep]||(byRep[rep]={shipments:0,ar:0,est_costs:0,ap:0,profit:0,overruns:0,no_ar:0,no_est:0,_apMag:0});
-    k.shipments++;
-    var ar=nv(row,iAr), est=nv(row,iEst), ap=nv(row,iAp);
-    k.ar+=ar; k.est_costs+=est; k._apMag+=Math.abs(ap);
-    if(ar===0) k.no_ar++;
-    if(est===0) k.no_est++;
+    var rep=repFor(sp); if(!rep){ skippedUnknown++; continue; }
+    var jd=xlDate(row[iDate]); if(!jd){ skippedNoDate++; continue; }
+    jobs.push({job_no:no, job_date:jd, rep_name:rep, sales_person:sp, customer:(iCust>=0?(""+(row[iCust]||"")).trim():""), ar:nv(row,iAr), est_costs:nv(row,iEst), ap:nv(row,iAp)});
+  }
+  return {jobs:jobs, skippedBlank:skippedBlank, skippedUnknown:skippedUnknown, skippedNoDate:skippedNoDate};
+}
+function buildKpisFromJobs(jobs, now){
+  var weekly={}, monthly={};
+  function add(map,period,pe,rep,ar,est,ap){
+    if(!isActive(rep,pe,period)) return;
+    var key=rep+"|"+pe; var k=map[key]||(map[key]={rep_name:rep,week_ending:pe,period_type:period,shipments:0,ar:0,est_costs:0,ap:0,overruns:0,no_ar:0,no_est:0,uploaded_by:me.id,uploaded_at:now});
+    k.shipments++; k.ar+=ar; k.est_costs+=est; k.ap+=Math.abs(ap);
+    if(ar===0) k.no_ar++; if(est===0) k.no_est++;
     if(Math.abs(ap)>est && (est>0||Math.abs(ap)>0)) k.overruns++;
   }
-  Object.keys(byRep).forEach(function(rep){ var k=byRep[rep]; k.ap=round2(k._apMag); k.profit=round2(k.ar-k.est_costs); k.ar=round2(k.ar); k.est_costs=round2(k.est_costs); delete k._apMag; });
-  return {byRep:byRep, skippedBlank:skippedBlank, skippedUnknown:skippedUnknown, skippedDeparted:skippedDeparted};
+  jobs.forEach(function(j){
+    var jd=(""+j.job_date).slice(0,10); if(!jd||!j.rep_name) return;
+    var ar=+j.ar||0, est=+j.est_costs||0, ap=+j.ap||0;
+    add(weekly,"weekly",weekEndingFri(jd),j.rep_name,ar,est,ap);
+    add(monthly,"monthly",monthEndOf(jd),j.rep_name,ar,est,ap);
+  });
+  var out=[];
+  [weekly,monthly].forEach(function(map){ Object.keys(map).forEach(function(key){ var k=map[key]; k.ar=round2(k.ar); k.est_costs=round2(k.est_costs); k.ap=round2(k.ap); k.profit=round2(k.ar-k.est_costs); out.push(k); }); });
+  return out;
 }
 function readFmsFile(){
   var f=$("up_file").files[0]; if(!f){ $("up_preview").innerHTML='<span style="color:#b00020">Choose a file first.</span>'; return; }
-  var wk=$("up_week").value;
   var rd=new FileReader();
   rd.onload=function(e){
     try{
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellDates:true});
       var ws=wb.Sheets[wb.SheetNames[0]];
       var aoa=XLSX.utils.sheet_to_json(ws,{header:1});
-      var res=computeAllKpis(aoa,wk,"weekly");
-      if(res&&res.__nosales){ $("up_preview").innerHTML='<span style="color:#b00020">No “Sales Person” column found — is this the right FMS export?</span>'; pendingKpis=null; return; }
-      if(!res||!Object.keys(res.byRep).length){ $("up_preview").innerHTML='<span style="color:#b00020">No rows matched a rep set up in the app.</span>'; pendingKpis=null; return; }
-      pendingKpis=res.byRep;
-      var reps=Object.keys(res.byRep).sort(function(a,b){return res.byRep[b].shipments-res.byRep[a].shipments;});
-      var body=reps.map(function(rep){ var k=res.byRep[rep];
-        return '<tr><td style="font-weight:bold">'+esc(rep)+'</td><td style="text-align:right">'+k.shipments+'</td><td style="text-align:right">'+fmtMoney(k.ar)+'</td><td style="text-align:right;color:'+(k.profit<0?'#b00020':'#2e7d32')+';font-weight:bold">'+fmtMoney(k.profit)+'</td><td style="text-align:right;color:'+(k.overruns>0?'#b00020':'inherit')+'">'+k.overruns+(k.overruns>0?' ⚑':'')+'</td></tr>';
+      var res=parseJobs(aoa);
+      if(res.nosales){ $("up_preview").innerHTML='<span style="color:#b00020">No \u201cSales Person\u201d column found \u2014 is this the right FMS export?</span>'; pendingJobs=null; return; }
+      if(res.noNum){ $("up_preview").innerHTML='<span style="color:#b00020">No \u201cNumber\u201d (job ref) column found.</span>'; pendingJobs=null; return; }
+      if(!res.jobs.length){ $("up_preview").innerHTML='<span style="color:#b00020">No jobs matched a rep set up in the app.</span>'; pendingJobs=null; return; }
+      pendingJobs=res.jobs;
+      var byRep={};
+      res.jobs.forEach(function(j){ var k=byRep[j.rep_name]||(byRep[j.rep_name]={n:0,ar:0,profit:0}); k.n++; k.ar+=j.ar; k.profit+=(j.ar-j.est_costs); });
+      var dates=res.jobs.map(function(j){return j.job_date;}).sort();
+      var reps=Object.keys(byRep).sort(function(a,b){return byRep[b].n-byRep[a].n;});
+      var body=reps.map(function(rep){ var k=byRep[rep];
+        return '<tr><td style="font-weight:bold">'+esc(rep)+'</td><td style="text-align:right">'+k.n+'</td><td style="text-align:right">'+fmtMoney(k.ar)+'</td><td style="text-align:right;color:'+(k.profit<0?"#b00020":"#2e7d32")+';font-weight:bold">'+fmtMoney(k.profit)+'</td></tr>';
       }).join("");
-      var notes=res.skippedBlank+' rows with no salesperson skipped'+(res.skippedUnknown?(' · '+res.skippedUnknown+' with a name not in the app'):'')+(res.skippedDeparted?(' · '+res.skippedDeparted+' for a departed rep'):'');
-      $("up_preview").innerHTML='<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+reps.length+' reps found · '+notes+'. Check, then save:</div>'+
-        '<table class="team-table"><thead><tr><th style="text-align:left">Rep</th><th style="text-align:right">Shipments</th><th style="text-align:right">AR</th><th style="text-align:right">Profit</th><th style="text-align:right">Overruns</th></tr></thead><tbody>'+body+'</tbody></table>'+
-        '<div style="margin-top:10px"><button class="btn btn-green" id="up_save">Save all reps</button> <span class="msg" id="up_msg"></span></div>';
-      $("up_save").onclick=saveKpis;
-    }catch(err){ $("up_preview").innerHTML='<span style="color:#b00020">Error reading file: '+esc(err.message)+'</span>'; pendingKpis=null; }
+      var notes=res.jobs.length+' jobs \u00b7 '+fmtDate(dates[0])+' \u2192 '+fmtDate(dates[dates.length-1])+' \u00b7 '+res.skippedBlank+' no-salesperson'+(res.skippedUnknown?(' \u00b7 '+res.skippedUnknown+' no profile'):'')+(res.skippedNoDate?(' \u00b7 '+res.skippedNoDate+' no date'):'')+' skipped';
+      $("up_preview").innerHTML='<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+notes+'. Save to update every week &amp; month:</div>'+
+        '<table class="team-table"><thead><tr><th style="text-align:left">Rep</th><th style="text-align:right">Jobs</th><th style="text-align:right">AR</th><th style="text-align:right">Profit</th></tr></thead><tbody>'+body+'</tbody></table>'+
+        '<div style="margin-top:10px"><button class="btn btn-green" id="up_save">Save all jobs</button> <span class="msg" id="up_msg"></span></div>';
+      $("up_save").onclick=saveJobs;
+    }catch(err){ $("up_preview").innerHTML='<span style="color:#b00020">Error reading file: '+esc(err.message)+'</span>'; pendingJobs=null; }
   };
   rd.readAsArrayBuffer(f);
 }
-async function saveKpis(){
-  var wk=$("up_week").value;
-  if(!wk){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Pick the week first."; return; }
-  if(!pendingKpis||!Object.keys(pendingKpis).length){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Read a file first."; return; }
-  var now=new Date().toISOString(), reps=Object.keys(pendingKpis);
-  $("up_save").disabled=true; $("up_msg").style.color="var(--green)"; $("up_msg").textContent="Saving…";
-  // 1) weekly rows for this week
-  var weeklyRecs=reps.map(function(rep){ return Object.assign({rep_name:rep, week_ending:wk, period_type:"weekly", uploaded_by:me.id, uploaded_at:now}, pendingKpis[rep]); });
-  var r1=await sb.from("bd_fms_kpis").upsert(weeklyRecs,{onConflict:"rep_name,period_type,week_ending"});
-  if(r1.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error: "+r1.error.message; return; }
-  // 2) rebuild each rep's monthly total = sum of that month's weekly rows
-  var kr=await sb.from("bd_fms_kpis").select("*");
-  var allK=(kr.data||[]), ym=wk.slice(0,7), monthEnd=new Date(+ym.slice(0,4),+ym.slice(5,7),0).toISOString().slice(0,10);
-  var monthlyRecs=reps.map(function(rep){
-    var rows=allK.filter(function(x){return x.rep_name===rep && (x.period_type||"weekly")==="weekly" && (""+x.week_ending).slice(0,7)===ym;});
-    var a={shipments:0,ar:0,est_costs:0,ap:0,overruns:0,no_ar:0,no_est:0};
-    rows.forEach(function(x){ a.shipments+=(+x.shipments||0); a.ar+=(+x.ar||0); a.est_costs+=(+x.est_costs||0); a.ap+=(+x.ap||0); a.overruns+=(+x.overruns||0); a.no_ar+=(+x.no_ar||0); a.no_est+=(+x.no_est||0); });
-    a.ar=round2(a.ar); a.est_costs=round2(a.est_costs); a.ap=round2(a.ap); a.profit=round2(a.ar-a.est_costs);
-    return Object.assign({rep_name:rep, week_ending:monthEnd, period_type:"monthly", uploaded_by:me.id, uploaded_at:now}, a);
-  });
-  var r2=await sb.from("bd_fms_kpis").upsert(monthlyRecs,{onConflict:"rep_name,period_type,week_ending"});
+async function saveJobs(){
+  if(!pendingJobs||!pendingJobs.length){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Read a file first."; return; }
+  var now=new Date().toISOString();
+  $("up_save").disabled=true; $("up_msg").style.color="var(--green)"; $("up_msg").textContent="Saving jobs\u2026";
+  var jobRecs=pendingJobs.map(function(j){ return {job_no:j.job_no, job_date:j.job_date, rep_name:j.rep_name, sales_person:j.sales_person, customer:j.customer||null, ar:round2(j.ar), est_costs:round2(j.est_costs), ap:round2(j.ap), updated_at:now}; });
+  for(var i=0;i<jobRecs.length;i+=500){
+    var r=await sb.from("bd_fms_jobs").upsert(jobRecs.slice(i,i+500),{onConflict:"job_no"});
+    if(r.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error saving jobs: "+r.error.message; return; }
+  }
+  $("up_msg").textContent="Rebuilding weekly \u0026 monthly\u2026";
+  var allJobs=await sb.from("bd_fms_jobs").select("*");
+  if(allJobs.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error reading jobs: "+allJobs.error.message; return; }
+  var kpiRecs=buildKpisFromJobs(allJobs.data||[], now);
+  var del=await sb.from("bd_fms_kpis").delete().gte("week_ending","1900-01-01");
+  if(del.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error clearing totals: "+del.error.message; return; }
+  for(var m=0;m<kpiRecs.length;m+=500){
+    var ins=await sb.from("bd_fms_kpis").insert(kpiRecs.slice(m,m+500));
+    if(ins.error){ $("up_save").disabled=false; $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error building totals: "+ins.error.message; return; }
+  }
   $("up_save").disabled=false;
-  if(r2.error){ $("up_msg").style.color="#b00020"; $("up_msg").textContent="Error (monthly): "+r2.error.message; return; }
-  $("up_msg").textContent="Saved "+reps.length+" reps — week ending "+fmtDate(wk)+"; monthly totals rebuilt for "+monthLbl(monthEnd);
-  toast("Weekly + monthly updated for "+reps.length+" reps"); $("up_file").value=""; pendingKpis=null;
+  $("up_msg").textContent="Saved "+jobRecs.length+" jobs \u2014 every week \u0026 month updated.";
+  toast("FMS jobs saved \u00b7 "+jobRecs.length); $("up_file").value=""; pendingJobs=null;
   await loadReports();
 }
 
